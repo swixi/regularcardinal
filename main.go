@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"time"
 )
@@ -19,13 +20,16 @@ func main() {
 		log.Fatal("No port was specified!")
 	}
 
-	fs := http.FileServer(http.Dir(webRoot))
-	http.Handle("/", fs)
-	http.HandleFunc("/adem/", ademHandler)
-	http.HandleFunc("/adem/query", ademQueryHandler)
-	//http.HandleFunc("/request/", printRequest)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/adem", ademHandler)
+	mux.HandleFunc("/adem/query", ademQueryHandler)
+	// mux.HandleFunc("/request/", printRequest)
 
-	http.ListenAndServe(":"+port, nil)
+	fs := http.FileServer(http.Dir(filepath.Join(webRoot, "static")))
+	mux.Handle("/", fs)
+
+	err := http.ListenAndServe(":"+port, mux)
+	log.Fatal(err)
 }
 
 // Print out the request...
@@ -41,6 +45,13 @@ func ademHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ademQueryHandler(w http.ResponseWriter, r *http.Request) {
+	// only accept POST
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "Request Method Not Allowed", 405)
+		return
+	}
+
 	err := r.ParseForm()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
