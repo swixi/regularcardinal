@@ -13,7 +13,8 @@ import (
 )
 
 var port = os.Getenv("PORT")
-var webRoot = os.Getenv("WEBROOT") // location of html files
+var dirStatic = "./static"
+var dirTemplate = "./templates"
 
 func main() {
 	if port == "" {
@@ -25,7 +26,7 @@ func main() {
 	mux.HandleFunc("/adem/query", ademQueryHandler)
 	// mux.HandleFunc("/request/", printRequest)
 
-	fs := http.FileServer(http.Dir(filepath.Join(webRoot, "static")))
+	fs := http.FileServer(http.Dir("./static"))
 	mux.Handle("/", fs)
 
 	err := http.ListenAndServe(":"+port, mux)
@@ -41,7 +42,7 @@ func printRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func ademHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "adem.html")
+	http.ServeFile(w, r, filepath.Join(dirTemplate, "adem.html"))
 }
 
 func ademQueryHandler(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +72,7 @@ func ademQueryHandler(w http.ResponseWriter, r *http.Request) {
 	pythonString := fmt.Sprintf(`import adem; adem.print_adem("%s")`, query)
 
 	cmd := exec.Command("python3", "-c", pythonString)
-	cmd.Dir = "bin/adem" // should be in another location?
+	cmd.Dir = "./bin/adem" // should be in another location?
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
