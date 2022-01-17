@@ -1,0 +1,30 @@
+{{template "base" .}}
+
+{{define "title"}}
+  Adem Relations Calculator
+{{end}}
+
+{{define "header"}}
+  Adem Relations Calculator
+{{end}}
+
+{{define "main"}}
+<p>
+Written in Python, served by Go. See the source code <a href="https://github.com/swixi/adem">here</a>.
+<br>Inspired by <a href="https://math.berkeley.edu/~kruckman/adem/">this</a>, although the implementation likely differs. 
+
+<form action="/adem/" method="POST">
+  <div>
+    <label for="query">Enter a sum of Steenrod squares. As an example, the sum Sq^6 Sq^4 Sq^2 + Sq^2 Sq^10 would be entered as "6 4 2 + 2 10".</label> 
+    <br>
+    <input name="query" id="query" value="{{.QueryInput}}">
+  </div>
+  <div><input type="submit" value="Compute"></div>
+</form>
+
+<br>
+{{range $v := .QueryResult}}{{$v}}<br>{{end}}
+
+</p>
+
+{{end}}
