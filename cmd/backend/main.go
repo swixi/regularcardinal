@@ -142,60 +142,65 @@ func ademHandler(w http.ResponseWriter, r *http.Request) {
 
 		var data PageData
 
-		// validate form input as a string consisting of
-		// only numbers, spaces, +
+		// Validate form input as a string consisting of
+		// Only numbers, spaces, or +
 		re := regexp.MustCompile("^[0-9 \\+]*$")
 		query := r.PostFormValue("query")
 
-		// TODO: really shouldn't put so much in an else block, this should be refactored
-		if !re.MatchString(query) {
-			data = PageData{Time: app.buildTime, QueryResult: []string{"Wrong query form."}}
+		if re.MatchString(query) {
+			data, err = runAdemWithQuery(query)
+			if err != nil {
+				data = PageData{Time: app.buildTime, QueryResult: []string{"An error occurred in the backend while computing the Adem relations."}}
+			}
 		} else {
-			pythonString := fmt.Sprintf(`import adem; adem.print_adem("%s")`, query)
-
-			cmd := exec.Command("python3", "-c", pythonString)
-			cmd.Dir = "./bin/adem" // should be in another location?
-
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// TODO: if the command is taking too long, say >30s, then kill it
-			// This can kill server resources
-			start := time.Now()
-
-			err = cmd.Start()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			b, err := io.ReadAll(stdout)
-			if err != nil {
-				fmt.Fprintf(w, "Command ran with error: %v", err)
-				return
-			}
-
-			// An error here means that the python command went poorly AKA exit code 1, likely overflow
-			// TODO: Handle this better...
-			//   Better to use Stderr and have a better error handling for the webserver
-			err = cmd.Wait()
-			if err != nil {
-				data = PageData{Time: app.buildTime, QueryInput: "", QueryResult: []string{"Overflow!"}}
-			} else {
-				t := time.Now()
-				elapsed := t.Sub(start)
-
-				output := []string{
-					fmt.Sprintf("Result: %s", string(b)),
-					fmt.Sprintf("Time elapsed: %s", elapsed),
-				}
-
-				// Note that query has passed the regex validation at this point
-				data = PageData{Time: app.buildTime, QueryInput: query, QueryResult: output}
-			}
+			data = PageData{Time: app.buildTime, QueryResult: []string{"Wrong query form."}}
 		}
 
 		renderTemplate(w, "adem.page.tmpl", data)
 	}
+}
+
+// Run adem.py with a query
+// The query should already have been validated as proper input, but if not, the python program itself will (hopefully) fail
+func runAdemWithQuery(query string) (PageData, error) {
+	pythonString := fmt.Sprintf(`import adem; adem.print_adem("%s")`, query)
+
+	cmd := exec.Command("python3", "-c", pythonString)
+	cmd.Dir = "./bin/adem" // should be in another location?
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return PageData{}, err
+	}
+
+	// TODO: if the command is taking too long, say >30s, then kill it
+	// This can kill server resources
+	start := time.Now()
+
+	err = cmd.Start()
+	if err != nil {
+		return PageData{}, err
+	}
+
+	b, err := io.ReadAll(stdout)
+	if err != nil {
+		return PageData{}, err
+	}
+
+	// An error here means that the python command went poorly AKA exit code 1, likely an overflow
+	// If a different error occurs, the end user will still think it's an overflow...
+	err = cmd.Wait()
+	if err != nil {
+		return PageData{Time: app.buildTime, QueryInput: "", QueryResult: []string{"Error: overflow?"}}, nil
+	}
+
+	t := time.Now()
+	elapsed := t.Sub(start)
+
+	output := []string{
+		fmt.Sprintf("Result: %s", string(b)),
+		fmt.Sprintf("Time elapsed: %s", elapsed),
+	}
+
+	return PageData{Time: app.buildTime, QueryInput: query, QueryResult: output}, nil
 }
