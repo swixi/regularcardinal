@@ -30,13 +30,19 @@ type PageData struct {
 }
 
 func main() {
-	if port == "" {
-		log.Fatal("No port was specified!")
+	// bitwise or to include both date and time
+	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
+	// shortfile includes file and line number where error occurred
+	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile)
+
+	if !isInteger(port) {
+		errorLog.Fatal("Invalid or missing port!")
 	}
+	infoLog.Printf("Server started on port %s", port)
 
 	templateCache, err := parseTemplates()
 	if err != nil {
-		log.Fatal(err)
+		errorLog.Fatal(err)
 	}
 
 	buildTime := time.Now().UTC().Format("Jan 2, 2006 15:04:05 UTC")
@@ -56,7 +62,7 @@ func main() {
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
 
 	err = http.ListenAndServe(":"+port, mux)
-	log.Fatal(err)
+	errorLog.Fatal(err)
 }
 
 // Parse all templates and return a cache of them
@@ -127,6 +133,7 @@ func ademHandler(w http.ResponseWriter, r *http.Request) {
 		data := PageData{Time: app.buildTime, QueryInput: "6 4 2 + 2 10"}
 		renderTemplate(w, "adem.page.tmpl", data)
 	}
+	// POST is called when the user submits a query
 	if r.Method == http.MethodPost {
 		err := r.ParseForm()
 		if err != nil {
