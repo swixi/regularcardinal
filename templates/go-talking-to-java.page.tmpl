@@ -1,0 +1,341 @@
+{{template "base" .}}
+
+{{define "title"}}Go talking to Java, Part 1{{end}}
+
+{{define "header"}}Go talking to Java, Part 1 {{end}} 
+
+{{define "breadcrumb"}}
+<ul class="breadcrumb">
+	<li><a href="../">Home</a></li>
+	<li><a href="./">Articles</a></li>
+</ul> 
+{{end}}
+
+{{define "main"}}
+    <div class="info">
+	  Topics covered: diagram of project, Java ServerSocket, Golang TCP client, sending and receiving TCP messages
+	  <br>Original date: Feb 10, 2022
+	  </div>
+	  <hr>
+	  
+<p>This is going to be a series of articles where I document my process of trying to get an existing command line Java utility to run in the browser, served by a Golang backend web server. 
+
+<p>I'll say upfront that I realize there is probably a library (or three) out there that already does this. But I also know that I won't understand its inner workings without some mental effort and learning. The point of this series is that, since I will have to learn those inner workings, I might as well make it myself and <em>really</em> learn those inner workings.
+
+<h4>
+<hr>
+Background and proposed architecture
+<hr>
+</h4>
+
+<p>Here's a brief background. While in working on a math PhD, I wrote <a href="https://github.com/swixi/steenrod" target="_blank">this program in Java</a> called <em>steenrod</em>, to assist me with my thesis work. This work involved doing lots of calculations in the "Steenrod algebra" and many of its related friends. The details are not important for this series of articles; rather, the main takeaway is that <em>steenrod</em> is a command line Java program with a user loop, where the user inputs some mathematical expression and gets back another mathematical expression. A snippet of it looks like:
+
+
+<p><div class="code section">
+Enter a command: coprod 4 2
+<br>(3.037476 ms) [3, 4] x [1, 2] + [4, 2] x [] + [1, 16] x [3, 2] + [2, 8] x [2, 2] + [] x [4, 2]
+<br>(Total command time: 0.011054177 seconds)
+</div>
+
+<div class="aside">
+<em>Aside:</em> This command is computing the "coproduct" of an element &xi;<sub>4</sub><sup>2</sup> in the "dual Steenrod algebra". Again, these details are not important. What's important is that this is a command line tool that takes in certain commands and numbers as input, and spits out something similar as output, and I'd like to transport this interaction to the browser.
+</div>
+
+<p>In the above snippet, the "Enter a command" part is scanning for stdin, and the rest is dumped to stdout. This brings us to <b>the goal of this little project: to be able to interact with this Java program from the browser, as if we are on the command line</b> -- as if we are writing to stdin from the browser, and getting stdout back.
+
+<p>My guess is that the architecture of this project will look like (thanks draw.io):
+<p><img src="/static/steenrod_tcp_1.png" class="center">
+
+<p>Let's dig into this a little more. First, I'm pretty sure JavaScript will be required if I want it to actually look like a terminal in the browser, but I know little on the front-end, so I am putting that off until later. As for the back-end, the two approaches that come to mind are: (1) call the Java program using the <a href="https://pkg.go.dev/os/exec" target="_blank">Go exec package</a>, or (2) put a <span class="code">ServerSocket</span> in front of the current Java program, and then send the user's bytes from the Go server to the Java program via TCP (or HTTP, or whatever protocol -- I'm picking TCP because I want to learn more about it).
+
+<p>Either way, we need to send input to the Java program, and get output back. But there is a design decision to make. On the one hand, we can run the Java program <em>as it already exists</em> in the background as a Linux process, and then send data to it by writing to stdin. On the other hand, we can essentially write an API layer in front of the current Java program and use that for communication.
+
+<p>Roughly, these hands correspond to (1) and (2) above. To me, option (2) sounds more fun and more educational, so I'm going to do that. The downside is that the current user loop in <em>steenrod</em> will need to be re-written -- I'm not sure what to do about that yet. It expects stdin, but I will be sending TCP messages. I could write an API with each of the possible commands in <em>steenrod</em>, which would ignore the user loop altogether, but it would take a lot more time. For now, let's put that on the backburner and get our feet wet by playing with TCP communication, using <span class="code">ServerSocket</span> and <span class="code">net.Dial</span>.
+
+<h4>
+<hr>
+TCP Basics
+<hr>
+</h4>
+
+Okay, this is not really "TCP Basics" per se. I'm not going to go into what TCP is. Other than some ACKs and SYNs, I'm not even that sure what TCP is. This is more about the basics of sending and receiving data over a TCP connection.
+
+<p>In Java, we can use a <a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/net/ServerSocket.html" target="_blank">ServerSocket</a> to listen for incoming TCP connections. To regurgitate the documentation here: we will create a <span class="code">ServerSocket</span> object, then use the <span class="code">accept()</span> method to listen for a connection and accept it once it comes in (which creates the actual socket), noting that this method blocks until a connection is made. When we're done, we should call <span class="code">close()</span>. We are not going to consider security at all, at least for now. 
+
+<p>Here's a simple TCP server in Java which is stolen from <a href="https://cs.lmu.edu/~ray/notes/javanetexamples/" target="_blank">here</a> but which also writes the socket info to stdout. Note that because <span class="code">ServerSocket</span> implements <span class="code">AutoCloseable</span>, and we initialize it as a try-with-resources statement, we do not need to worry about closing the <span class="code">ServerSocket</span>. Same thing applies to the Socket we get via <span class="code">accept()</span>.
+
+<pre class="code section">
+1 import java.io.IOException;
+2 import java.io.PrintWriter;
+3 import java.net.ServerSocket;
+4 import java.util.Date;
+5
+6 public class TCPServer {
+7   public static void main(String[] args) throws IOException {
+8     try (var listener = new ServerSocket(59000)) {
+9       System.out.println("The server is running...");
+10      while(true) {
+11        try (var socket = listener.accept()) {
+12          var out = new PrintWriter(socket.getOutputStream(), true);
+13          out.println((new Date()).toString());
+14          out.println(socket.toString());
+15          out.println(socket.getSendBufferSize());
+16        }
+17      }
+18    }
+19  }
+20}
+</pre>
+
+<p>Now let's write the simplest TCP client in Go. (I know I got the basic blueprint of this from somewhere on the internet, but I forget where. Sorry...)
+
+<pre class="code section">
+1 package main
+2
+3 import (
+4   "fmt"
+5   "net"
+6   "os"
+7 )
+8
+9 func main() {
+10   arguments := os.Args
+11   if len(arguments) != 2 {
+12     fmt.Println("Format is host:port")
+13     return
+14   }
+15
+16   address := arguments[1]
+17   c, err := net.Dial("tcp", address)
+18   if err != nil {
+19     fmt.Println(err)
+20     return
+21   }
+22   defer c.Close()
+23
+24   buf := make([]byte, 256)
+25
+26   n, err := c.Read(buf)
+27   fmt.Printf("%d bytes read\n", n)
+28   fmt.Println(string(buf))
+29 }
+</pre>
+
+<p>Explanation: we pass this program an address of the form "host:port", then get back a <span class="code">Conn</span> from <span class="code">net.Dial("tcp",address)</span>, then call the <span class="code">Read()</span> on that <span class="code">Conn</span>, which fills our <span class="code">[]byte</span> buffer with the response from the TCP connection.
+
+
+<div class="aside">
+<em>Aside:</em> <span class="code">Conn</span> is an interface, and in the case above we will get back a <a href="https://cs.opensource.google/go/go/+/master:src/net/tcpsock.go;l=86;drc=refs%2Ftags%2Fgo1.17.6?q=TCPConn&ss=go%2Fgo" target="_blank">TCPConn</a> which is an implementation of <span class="code">Conn</span>. That is, if my src spelunking can be trusted.
+</div>
+
+
+<p>Running the Java server in the background, and then running 
+<br><center><span class="code">go run TCPclient.go localhost:59000</span></center>
+<br> shows the output:
+
+<pre class="code section">
+80 bytes read
+Wed Feb 09 01:39:58 UTC 2022
+Socket[addr=/127.0.0.1,port=52828,localport=59000]
+</pre>
+
+<p>If our buffer was smaller, such as 64 bytes, we would only get the first 64 bytes back; our response would be truncated. The port 52828 is an ephemeral port that I'm assuming the OS (Linux in this case) chose based on some criteria, such as "it was available". 
+
+<p>For fun and to see if I could break something, I ran this 10,000 times, with a 10ms sleep between each new <span class="code">Dial()</span>, and you can see Linux rotate through the ephemeral port range, eventually having to rollover:
+<pre class="code section">
+80 bytes read
+Wed Feb 09 01:47:12 UTC 2022
+Socket[addr=/127.0.0.1,port=60996,localport=59000]
+
+80 bytes read
+Wed Feb 09 01:47:12 UTC 2022
+Socket[addr=/127.0.0.1,port=60998,localport=59000]
+
+80 bytes read
+Wed Feb 09 01:47:12 UTC 2022
+Socket[addr=/127.0.0.1,port=32768,localport=59000]
+
+80 bytes read
+Wed Feb 09 01:47:12 UTC 2022
+Socket[addr=/127.0.0.1,port=32770,localport=59000]
+</pre>
+
+<p>However, something else happens which is mysterious to me. Intermittently, there is an output which only includes the date, and not the <span class="code">socket.toString()</span> portion. Notice that the port jump (jumping 2 at a time) still appears to have happened for the smaller response: 
+
+<pre class="code section">
+80 bytes read
+Wed Feb 09 01:46:27 UTC 2022
+Socket[addr=/127.0.0.1,port=52868,localport=59000]
+
+80 bytes read
+Wed Feb 09 01:46:27 UTC 2022
+Socket[addr=/127.0.0.1,port=52870,localport=59000]
+
+29 bytes read
+Wed Feb 09 01:46:27 UTC 2022
+
+80 bytes read
+Wed Feb 09 01:46:28 UTC 2022
+Socket[addr=/127.0.0.1,port=52874,localport=59000]
+</pre>
+
+<p>I'm not sure why this happens, but out of 10,000 runs, there are in the range of a few hundred of these. Perhaps something to do with the Java server being single-threaded? Buffer-related? Why do we see the <span class="code">Date()</span> info successfully? <b>Spoiler:</b> I find the answer below.
+
+
+<h4>
+<hr>
+Writing and reading to and from the TCP channel
+<hr>
+</h4>
+
+In the previous example, we only read from a TCP server. Now we'll send a message to the server and get something back. Again, I'm going to base the Java server off of <a href="https://cs.lmu.edu/~ray/notes/javanetexamples/" target="_blank">this webpage</a>, with some changes, such as the omission of multiple threads. The server looks like:
+
+<pre class="code section">
+1 import java.io.IOException;
+2 import java.io.PrintWriter;
+3 import java.net.Socket;
+4 import java.net.ServerSocket;
+5 import java.util.Scanner;
+6
+7 public class TCPServer {
+8   public static void main(String[] args) throws IOException {
+9     try(var listener = new ServerSocket(59000)) {
+10       System.out.println("The server is running...");
+11       while(true) {
+12         try(var socket = listener.accept()) {
+13           echo(socket);
+14         }
+15       }
+16     }
+17   }
+18
+19   public static void echo(Socket socket) {
+20     try {
+21       var in = new Scanner(socket.getInputStream());
+22       var out = new PrintWriter(socket.getOutputStream(), true);
+23       out.println("Socket info: " + socket.toString());
+24       while(in.hasNextLine()) {
+25         out.println("Received input: " + in.nextLine());
+26       }
+27     } catch(Exception e) {
+28       e.printStackTrace();
+29     }
+30   }
+31 }
+</pre>
+
+<p>Explanation: this server will scan input data, and then use that to write back to the other side of the connection, saying that the input was received. Note that we really should close the <span class="code">Scanner</span> and <span class="code">PrintWriter</span> classes in a <span class="code">finally</span> block, but I've not done that here for brevity (read: laziness).
+
+<p>Now, we'll expand our TCP client in Go so that it actually sends a message to the server:
+
+<pre class="code section">
+1 package main
+2
+3 import (
+4   "fmt"
+5   "net"
+6   "os"
+7 )
+8
+9 func main() {
+10   arguments := os.Args
+11   if len(arguments) != 2 {
+12     fmt.Println("Format is host:port")
+13     return
+14   }
+15
+16   address := arguments[1]
+17   callTCP(address)
+18 }
+19
+20 func callTCP(address string) {
+21   c, err := net.Dial("tcp", address)
+22   if err != nil {
+23     fmt.Println(err)
+24     return
+25   }
+26   defer c.Close()
+27
+28   msg := []byte("Hello!\n")
+29   _, err = c.Write(msg)
+30   if err != nil {
+31     fmt.Println("TCP write error")
+32     return
+33   }
+34
+35   buf := make([]byte, 256)
+36
+37   n, err := c.Read(buf)
+38   if err != nil {
+39     fmt.Println("TCP read error")
+40     return
+41   }
+42   fmt.Printf("%d bytes read\n", n)
+43   fmt.Println(string(buf))
+44 }
+</pre>
+
+<p>This is a pretty self-explanatory extension of the previous program. We added a section for filling a new byte slice, in order to write the message "Hello!". The only subtlety is that we need to include a new line escape character because the Java server is checking for <span class="code">hasNextLine()</span>. 
+
+<p>Now let's run it against the server:
+<pre class="code section">
+64 bytes read
+Socket info: Socket[addr=/127.0.0.1,port=45056,localport=59000]
+</pre>
+
+<p>Wait, where's the acknowledgement of a message? Running it again:
+
+<pre class="code section">
+87 bytes read
+Socket info: Socket[addr=/127.0.0.1,port=45058,localport=59000]
+Received input: Hello!
+</pre>
+
+<p>This is similar behavior to what we've seen before. Why are we not receiving the entire response? Well, what's a similarity here? Notice in both cases that the first line we write to the <span class="code">PrintWriter</span> is received by the Go client. With our earlier example, I thought maybe there was an issue with the <span class="code">Socket.toString()</span> method -- perhaps it was taking too long -- but that's the one that's working every time now. Ah! It's probably related to the buffer. It might be filling with the first line, and giving us that as the response on the Go side. 
+
+<p>Okay, let's add a 10ms sleep and then repeat the <span class="code">Read()</span> to see if we can get the rest of what's being "offered" by the Java server:
+<pre class="code section">
+46   time.Sleep(10 * time.Millisecond)
+47   n, err = c.Read(buf)
+48   if err != nil {
+49     fmt.Println("TCP read error")
+50     return
+51   }
+52   fmt.Printf("%d bytes read\n", n)
+53   fmt.Println(string(buf))
+</pre>
+
+<p>Now re-run and we get:
+<pre class="code section">
+64 bytes read
+Socket info: Socket[addr=/127.0.0.1,port=45084,localport=59000]
+
+23 bytes read
+Received input: Hello!
+r=/127.0.0.1,port=45084,localport=59000]
+</pre>
+
+<p>Nice! That solves it. Yeah, there's some of the leftover data in the buffer byte slice from the previous buffer, but obviously we would clear that out in real code -- we're just playing around here! And that's also why I'm including all of this, because this is an important part of programming, the debugging and playing part, and a lot of the time we just see the final versions of things online, where the author hasn't documented the struggles they went through. Of course there is a balance to be struck there.
+
+<p>So why do we sometimes get both output lines from the Java program's output stream, and sometimes we need to run <span class="code">Read()</span> twice? I'm not really sure. There's probably something going on here with how the TCP protocol works at a lower level, something to do with the timing of waiting on a TCP channel for a message? It's interesting and worth some digging.
+
+<p>Anyway, this is a good stopping point for now. Next on the agenda will be to send mathematical expressions to the TCP server and actually parse them, do arithmetic, and send a result back to the client.
+
+<p>I have a couple of other questions in my head right now for the future: 
+
+<ul>
+<li>How much input validation should be handled in the Go server, versus letting <em>steenrod</em> handle it? There is some validation in <em>steenrod</em> but it's still fairly brittle.
+<li>What to do when (not if) the Java program crashes? As in the above point, there are parts that are brittle, where formatting is not handled correctly. A user could crash the program purposefully if they wanted. Then the only recourse would be to restart the Java program. Does the Go server have permission to do that? We'd have to make sure that the OS permissions are aligned, so we would probably start the Java program from the Go server in the first place, so that the Java process is always owned by the user running the server.
+<br>A partial remedy to both of the above is to strengthen the Java program and make it more resilient -- maybe even some nasty giant try-catch blocks.
+</ul>
+
+<p>Until next time.
+
+    <footer>
+	<ul class="breadcrumb">
+		<li><a href="../">Home</a></li>
+		<li><a href="./">Articles</a></li>
+	</ul> 
+	</footer>
+
+{{end}}

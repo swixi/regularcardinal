@@ -7,15 +7,21 @@
 * {
 	font-family: Helvetica, Arial, sans-serif;
 	background-color: azure;
+	color: black;
 	/*border: 2px solid red;*/
 }
 
-h1 {
-	color: black;
+html {
+	font-size: 1.1em;
 }
 
 body {
-	padding: 10px 16px;
+	align: center;
+	max-width: 800px;
+	margin-left: auto;
+	margin-right: auto;
+	line-height: 1.5;
+	/*padding: 10px 16px;*/
 }
 
 /********/
@@ -26,6 +32,41 @@ body {
 	line-height: 2;
 }
 
+.aside {
+	font-style: italic;
+	background-color: light-grey;
+	padding-left: 20px;
+	padding-right: 20px;
+	padding-top: 10px;
+	padding-bottom: 10px;
+	font-size: 100%;
+	display: inline-block;
+}
+
+.aside em {
+	font-style: normal; /* double emphasize */
+}
+
+.code {
+	font-family: Consolas, "courier-new";
+	color: crimson;
+}
+
+.code.section {
+	background-color: #f1f1f1;
+	padding: 20px;
+}
+
+.center {
+	display: block;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.info {
+	font-family: "courier new";
+}
+
 /***************/
 /* Breadcrumbs */
 /***************/
@@ -33,7 +74,7 @@ body {
  /* Style the list */
 ul.breadcrumb {
 	padding: 0;
-	font-size: 18px;
+	/*font-size: 18px;*/
 	list-style: none;
 	display: inline-block;
 }

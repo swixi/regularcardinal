@@ -53,10 +53,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/articles/", articleHandler)
 	mux.HandleFunc("/adem/", ademHandler)
 	mux.HandleFunc("/", homeHandler)
 
 	// Relative to project root dir
+	// TODO: do we really want this to be browse-able?
 	fileServer := http.FileServer(http.Dir("./static/"))
 
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
@@ -126,6 +128,17 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: shouldn't need to send every template the time built.
 	// Render this once
 	renderTemplate(w, "home.page.tmpl", PageData{Time: app.buildTime})
+}
+
+func articleHandler(w http.ResponseWriter, r *http.Request) {
+	relURL := r.URL.Path[len("/articles/"):]
+	if relURL == "" {
+		renderTemplate(w, "articles.page.tmpl", PageData{Time: app.buildTime})
+	} else if relURL == "go-talking-to-java" {
+		renderTemplate(w, "go-talking-to-java.page.tmpl", PageData{Time: app.buildTime})
+	} else {
+		http.NotFound(w, r)
+	}
 }
 
 func ademHandler(w http.ResponseWriter, r *http.Request) {
