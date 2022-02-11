@@ -18,7 +18,7 @@
 	  </div>
 	  <hr>
 	  
-<p>This is going to be a series of articles where I document my process of trying to get an existing command line Java utility to run in the browser, served by a Golang backend web server. 
+<p>This is going to be a series of articles where I document my process of trying to get an existing Java command line utility to run in the browser, served by a Golang backend web server. 
 
 <p>I'll say upfront that I realize there is probably a library (or three) out there that already does this. But I also know that I won't understand its inner workings without some mental effort and learning. The point of this series is that, since I will have to learn those inner workings, I might as well make it myself and <em>really</em> learn those inner workings.
 
@@ -28,7 +28,7 @@ Background and proposed architecture
 <hr>
 </h4>
 
-<p>Here's a brief background. While in working on a math PhD, I wrote <a href="https://github.com/swixi/steenrod" target="_blank">this program in Java</a> called <em>steenrod</em>, to assist me with my thesis work. This work involved doing lots of calculations in the "Steenrod algebra" and many of its related friends. The details are not important for this series of articles; rather, the main takeaway is that <em>steenrod</em> is a command line Java program with a user loop, where the user inputs some mathematical expression and gets back another mathematical expression. A snippet of it looks like:
+<p>Here's a brief background. While working on a math PhD, I wrote <a href="https://github.com/swixi/steenrod" target="_blank">this program in Java</a> called <em>steenrod</em>, to assist me with my thesis work. This work involved doing lots of calculations in the "Steenrod algebra" and many of its related friends. The details are not important for this series of articles; rather, the main takeaway is that <em>steenrod</em> is a command line Java program with a user loop, where the user inputs some mathematical expression and gets back another mathematical expression. A snippet of it looks like:
 
 
 <p><div class="code section">
@@ -38,7 +38,7 @@ Enter a command: coprod 4 2
 </div>
 
 <div class="aside">
-<em>Aside:</em> This command is computing the "coproduct" of an element &xi;<sub>4</sub><sup>2</sup> in the "dual Steenrod algebra". Again, these details are not important. What's important is that this is a command line tool that takes in certain commands and numbers as input, and spits out something similar as output, and I'd like to transport this interaction to the browser.
+<em>Aside:</em> This command is computing the "coproduct" of an element &xi;<sub>4</sub><sup>2</sup> in the "dual Steenrod algebra". 
 </div>
 
 <p>In the above snippet, the "Enter a command" part is scanning for stdin, and the rest is dumped to stdout. This brings us to <b>the goal of this little project: to be able to interact with this Java program from the browser, as if we are on the command line</b> -- as if we are writing to stdin from the browser, and getting stdout back.
@@ -79,12 +79,11 @@ Okay, this is not really "TCP Basics" per se. I'm not going to go into what TCP 
 12          var out = new PrintWriter(socket.getOutputStream(), true);
 13          out.println((new Date()).toString());
 14          out.println(socket.toString());
-15          out.println(socket.getSendBufferSize());
-16        }
-17      }
-18    }
-19  }
-20}
+15        }
+16      }
+17    }
+18  }
+19}
 </pre>
 
 <p>Now let's write the simplest TCP client in Go. (I know I got the basic blueprint of this from somewhere on the internet, but I forget where. Sorry...)
