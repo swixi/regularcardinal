@@ -1,0 +1,472 @@
+{{template "base" .}}
+
+{{define "title"}}Graphs in Go: implementation and some algorithms{{end}}
+
+{{define "header"}}Graphs in Go: implementation and some algorithms{{end}}
+
+{{define "breadcrumb"}}
+  <ul class="breadcrumb">
+      <li><a href="../">Home</a></li>
+        <li><a href="./">Articles</a></li>
+  </ul> 
+{{end}}
+
+
+{{define "main"}}
+	  <hr>
+    <div class="info">
+	  Topics covered: implementation of a graph in Go, BFS, connected components, bipartite checking
+	  <br>Original date: Feb 27, 2022
+	  </div>
+	  <hr>
+
+<p>Before I begin, let me note that I will be using two sources for algorithms in this article: Skiena - The Algorithm Design Manual (2nd edition), and Cormen, Leiserson, Rivest, and Stein - Introduction to Algorithms (3rd edition). I'll refer to these as ADM and CLRS, respectively.
+
+<p>In this article, I will implement a few graph algorithms in Go, in part to better learn the language, and in part to refresh my memory of working with graphs. Eventually, I would like to visualize these algorithms as well, and I will probably do that by "piping" them into graphviz. 
+
+<p>For now, there are two types of tasks at hand: the first is populating the graph given some source data (from user input, a file, a database, etc), and the other is processing the graph once it's populated. 
+
+<h4>
+<hr>
+Implementation
+<hr>
+</h4>
+
+<p>Both of the above tasks depend on the question: how is the graph actually implemented in code? There are multiple options with various pros and cons, but I will leave that discussion to the books I've mentioned above (or whichever resource you find useful). Roughly following the approach of ADM and CLRS, our graph implementation will have the following properties:
+<ul>
+<li>vertices are represented by integers
+<li>the number of vertices is static (this is not really necessary but it makes representation of edges via a fixed-length slice work easily)
+<li>edges are directed
+<li>edges are stored using adjacency lists &ndash; that is, every vertex will have an associated slice of edges where said vertex is the source of each such edge
+</ul>
+
+<p>Finally, the source of data will be manually-entered vertex and edge data in the <span class="code">main()</span> function, because this is the easiest way.
+
+<div class="aside">
+<em>Aside:</em> In the real world, there should probably be an association between a vertex and some type richer than an <span class="code">int</span>. We could add this on top of our current implementation by creating a map of the form <span class="code">map[int]*somethingrich</span>, but it may be better to create a vertex type and keep a slice of these vertices in the graph struct. Something to keep in mind when we have a collection of things (e.g. vertices) that we want to iterate through is that maps will perform worse than slices on ranges, as described in <a href="https://boltandnuts.wordpress.com/2017/11/20/go-slice-vs-maps/" target="_blank">this article</a>.
+</div>
+
+<p>The graph will be represented in code as the struct type:
+
+<pre class="code section">
+type Graph struct {
+  nverts int
+  edges  []*edge 
+}
+</pre>
+
+where an edge is the struct type:
+
+<pre class="code section">
+type edge struct {
+  target int
+  weight int
+  next   *edge
+}
+</pre>
+
+<p>Let's unpack this a little bit. First, since vertices are <span class="code">int</span>s, there is no vertex type to keep track of. So, where "are" the vertices? Well, they are the <span class="code">int</span>s 0 through <span class="code">nverts</span>-1. And how do edges work? Each edge consists of a target, a weight, and a pointer to the next edge. The key thing to grok here is that the adjacency list for the vertex <span class="code">s</span> is represented as <span class="code">edges[s]</span>. In other words, <span class="code">edges[s]</span> is a linked list of edges, where each such edge represents an edge of the form s --w--> t. 
+
+<div class="aside"><em>Aside:</em> Note that <span class="code">edges</span> is an slice of pointers to structs, so it is zeroed as a slice of <span class="code">nil</span>s. This is kind of handy, because a slice of the form <span class="code">[]edge</span> would be zeroed as a bunch of zeroed <span class="code">edge</span> structs, with target: 0. But that's actually a valid target! So <span class="code">make([]edge, n)</span> would create an edge from every vertex to the vertex 0. We could just fill this with, say, target: -1, but then we need to do more error-checking. I find the <span class="code">nil</span> approach cleaner, as it signifies there is no edge to begin with.
+</div>
+
+<p>An initialization function for a graph might look like:
+
+<pre class="code section">
+func New(n int) Graph {
+  e := make([]*edge, n)
+  g := Graph{nverts: n, edges: e}
+  return g
+}
+</pre>
+
+<p>so if we write <span class="code">g := New(10)</span>, this creates a graph with 10 vertices and no edges. 
+
+<p>The last thing on the "graph creation" list is to write a function for adding edges. Say we want to add a new edge s --> t. The simplest way to do this is probably to add an edge as the head of <span class="code">edges[s]</span>:
+
+<pre class="code section">
+func (g *Graph) addEdge(s int, t int, w int) error {
+  if s >= g.nverts || s < 0 || t >= g.nverts || t < 0 {
+    return errors.New("invalid vertex")
+  }
+  e := edge{target: t, weight: w, next: g.edges[s]}
+  g.edges[s] = &e
+  return nil
+}
+</pre>
+
+Okay, now we can build graphs. To make the square:
+
+<p><img src="/static/graph1.png" class="center">
+
+we can add edges as follows:
+
+<pre class="code section">
+func main() {
+  g := New(4)
+  g.addEdge(0, 1, 0)
+  g.addEdge(1, 2, 0)
+  g.addEdge(2, 3, 0)
+  g.addEdge(3, 0, 0)
+}
+</pre>
+
+<p>Oh, and we can print edges like so:
+
+<pre class="code section">
+func printEdges(g Graph) {
+  for src, head := range g.edges {
+    // Iterate through edges with src as source
+    for e := head; e != nil; e = e.next {
+      fmt.Printf("%d --%d--> %d\n", src, e.weight, e.target)
+    }
+  }
+}
+</pre>
+
+and calling <span class="code">printEdges(g)</span> after adding the above edges outputs:
+
+<pre>
+0 --0--> 1
+1 --0--> 2
+2 --0--> 3
+3 --0--> 0
+</pre>
+
+
+In another article, I hope to focus more on visualization, so that printing the graph actually output a nice image.
+
+<div class="aside">
+<em>Aside:</em> the rest of this article will not use edge weights, but they don't add much complexity so I will keep them in. I hope to discuss weighted-edge algorithms next time.
+</div>
+
+<h4>
+<hr>
+Algorithms &ndash; BFS
+<hr>
+</h4>
+
+
+<p>Now that we have a model for storing a graph in memory, let's implement a breadth-first search (BFS). I will be basing the implementation off of a mix between ADM and CLRS, but there are differences. Before getting into the differences, let's briefly look at what the algorithm does. 
+
+<p>In a lot of places (see for example: <a href="https://en.wikipedia.org/wiki/Breadth-first_search" target="_blank">Wikipedia's article</a>, or maybe your favorite Leetcode problem), BFS is used to find a specified node, and return true or false whether or not it finds that node. The algorithm described in ADM and CLRS is slightly different: it is used for exploration. The search will explore the entire graph &ndash; well, a connected component, as we will see later &ndash; starting at some source node, and the algorithm will not exit after finding some target node. Additionally, we will call a function <span class="code">process_vertex</span> immediately after dequeueing a vertex <em>v</em> from the queue in our main loop, and a function <span class="code">process_edge</span> for each edge with <em>v</em> as its source. This gives us the flexibility to use <span class="code">bfs</span> to accomplish different tasks (we will see this later), based on what we put in these "processing" functions.
+
+<p>Let's discuss how our code will differ from ADM and CLRS. 
+
+<p>First, we won't implement the tri-coloring scheme: white/grey/black or undiscovered/discovered/processed. The tri-color scheme is good for visualization purposes but not necessary for the actual BFS algorithm. Instead, we can simplify this and use an undiscovered/discovered scheme, which is pretty standard in many sources you may come across.
+
+<p>Second, we will write the <span class="code">bfs</span> function so that it takes the above-mentioned <span class="code">process_vertex</span> and <span class="code">process_edge</span> functions as parameters. In ADM, these functions are accessible from <span class="code">bfs</span>, but this presents issues for two reasons that I can see. One reason is that we would have to change the global <span class="code">process_vertex</span> each time we want to implement a different algorithm (e.g. checking connected components or bipartite-ness). With the input parameter setup, we can define the processing functions locally inside each of our algorithm functions and pass them to the <span class="code">bfs</span> function, so that <span class="code">bfs</span> acts as a sort of template. The other reason is that this will be a great way (for me, at least) to feel more comfortable with functions-as-parameters and closures.
+
+<p>Okay, all of that said, here's what an adaptation of the above looks like:
+
+<pre class="code section">
+func bfs(g Graph, start int, process_vertex func(v int), 
+         process_edge func(s int, t int)) {
+  if start < 0 || start >= g.nverts {
+    return
+  }
+  if process_vertex == nil {
+    process_vertex = func(v int) {}
+  }
+  if process_edge == nil {
+    process_edge = func(s int, t int) {}
+  }
+
+  queue := make([]int, 0, g.nverts)
+  disc := make([]bool, g.nverts)
+  
+  queue = append(queue, start)
+  disc[start] = true
+
+  for len(queue) != 0 {
+    v := queue[0]
+    process_vertex(v)
+    queue = queue[1:]
+    head := g.edges[v]
+    // Process edges with v as source
+    // Enqueue all neighbors
+    for e := head; e != nil; e = e.next {
+      process_edge(v, e.target)
+      if !disc[e.target] {
+        disc[e.target] = true
+        queue = append(queue, e.target)
+      }
+    }
+  }
+}
+</pre>
+
+
+<p>Notice that there is a little bit of validation for the start vertex, and that if we pass <span class="code">nil</span> for our processing functions, we will just make them empty. The rest of this is adapted straight from ADM. In particular, <span class="code">process_edge</span> takes two <span class="code">int</span>s, because we need to operate with the source and target (e.g. in bipartite checking) but the source isn't included in an edge type. Another possibly is to make it of the type <span class="code">func(src int, e edge)</span>.
+
+<p>To illustrate the modularity afforded to us by passing <span class="code">process_vertex</span> as a parameter, let's print all of the vertices as we come across them in the BFS. In this case, the content of <span class="code">process_vertex</span> should be something like 
+<br><center><span class="code">fmt.Printf("%d\n", v)</span></center> 
+
+<p>so our function to print the BFS looks like:
+
+
+<pre class="code section">
+func bfsPrint(g Graph, start int) {
+  process_vertex := func(v int) {
+    fmt.Printf("%d\n", v)
+  }
+  bfs(g, start, process_vertex, nil)
+}
+</pre>
+
+<p>If we then add 
+<br><center><span class="code">bfsPrint(g,0)</span></center> 
+<p>to our <span class="code">main()</span>, then we get the output:
+<pre>
+0
+1
+2
+3
+</pre>
+as expected. 
+
+<p>Let's play with this function a bit to make sure we understand what's going on. If we instead call <span class="code">bfsPrint(g,1)</span>
+then we get:
+<pre>
+1
+2
+3
+0
+</pre>
+because the traversal starts on 1 now.
+
+<p>If we add an edge with <span class="code">g.addEdge(0,2,0)</span>, our graph will look like:
+<p><img src="/static/graph2.png" class="center">
+<p>If we call <span class="code">bfsPrint(g,0)</span>
+again, then we get:
+<pre>
+0
+2
+1
+3
+</pre>
+
+because by adding the edge 0 --> 2 after 0 --> 1, we actually make this the head at <span class="code">edges[0]</span>, so it becomes enqueued first (and any neighbors of 2 would come before any neighbors of 1).
+
+<p>Alright, one more example, which will lead us into the next section. What happens if we add three more vertices, and connect two of those with edges, so our <span class="code">main()</span> is now:
+<pre class="code section">
+func main() {
+  g := New(7)
+  g.addEdge(0, 1, 0)
+  g.addEdge(1, 2, 0)
+  g.addEdge(2, 3, 0)
+  g.addEdge(3, 0, 0)
+  g.addEdge(0, 2, 0)
+  g.addEdge(4, 5, 10)
+  g.addEdge(5, 4, 20)
+  bfsPrint(g, 0)
+}
+</pre>
+What's the output? It's
+<pre>
+0
+2
+1
+3
+</pre>
+again. Why? Because the vertices 4 and 5 cannot be reached via 0; there's no edge to either 4 or 5 from 0, or 1, or 2, or 3. If there is no path from 0 to 4, then it means they lie in different <a href="https://en.wikipedia.org/wiki/Component_(graph_theory)" target="_blank">connected components</a>. So what if we want to explore the entire graph?
+
+<h4>
+<hr>
+Algorithms &ndash; counting connected components
+<hr>
+</h4>
+
+<p>To count connected components, the idea is to run BFS on each vertex. Well, sort of. We can do a bit better if we keep track of what we've discovered already, and avoid searching on those vertices a second time. In ADM, the "discovered" array is a global variable accessed from the <span class="code">bfs</span> function, so the <span class="code">connected_components</span> function can also access this array to check what's been discovered. 
+
+<p>Because we're not using a global variable, we don't have access to the <span class="code">disc</span> slice from outside of <span class="code">bfs</span>, which makes things a little awkward. However, we can mimic the behavior in ADM by passing a new <span class="code">disc</span> slice from our <span class="code">components</span> function. This approach takes advantage of function closures: we can create a <span class="code">disc</span> slice in the <span class="code">components</span> function, and send that to <span class="code">bfs</span> as the <span class="code">process_vertex</span> function. This allows us to update our <span class="code">disc</span> slice during logic inside <span class="code">bfs</span>. Pretty cool! 
+
+<p>We can put this together into a function which will return the number of connected components in our graph:
+<pre class="code section">
+func components(g Graph) int {
+  disc := make([]bool, g.nverts)
+  count := 0
+
+  process_vertex := func(v int) {
+    fmt.Printf("found %d in component %d\n", v, count)
+    disc[v] = true
+  }
+
+  for i := 0; i < g.nverts; i++ {
+    // only start a new bfs on vertices we haven't seen yet
+    if !disc[i] {
+      count++
+      bfs(g, i, process_vertex, nil)
+    }
+  }
+
+  return count
+}
+</pre>
+
+<p>Just to stress this again: note that there are two different <span class="code">disc</span> slices at play, independent of each other &ndash; one in <span class="code">components</span> and one in <span class="code">bfs</span>.
+
+<p>If we run <span class="code">components(g)</span> against our graph we built earlier, we get 3. Why three and not two? Well, if you recall, we made our graph size seven, so there's a vertex, 6, floating out there with no edges to or from it. Our graph looks like:
+<p><img src="/static/graph3.png" class="center">
+<p>In fact, the full output of the above code also prints the vertices it finds in each component, so we can see the order in which the function is being called:
+<pre class="code section">
+found 0 in component 1
+found 2 in component 1
+found 1 in component 1
+found 3 in component 1
+found 4 in component 2
+found 5 in component 2
+found 6 in component 3
+3
+</pre>
+which shows the BFS order we saw before in component 1.
+
+<div class="aside">
+<em>Aside:</em> Another way we might have designed this is by calling our <span class="code">bfs</span> something like <span class="code">bfsComponent</span>, and then making <span class="code">bfs</span> search the entire graph, by essentially running the code above, i.e. running a range over all vertices while keeping track of what we discovered. From what I can tell, this approach would be equivalent in the sense that we still need to keep two discovered slices.
+</div>
+
+<h4>
+<hr>
+Algorithms &ndash; checking if bipartite
+<hr>
+</h4>
+
+<p>Another algorithm that <span class="code">bfs</span> can help with is an algorithm to check if a graph is <a href="https://en.wikipedia.org/wiki/Bipartite_graph" target="_blank">bipartite</a>. A graph is bipartite if the set of vertices can be divided into two disjoint sets, such that any edge in the graph runs between the two disjoint sets, and no edge exists between two vertices in the same set.
+
+<p>Again, we'll adapt the algorithm from ADM. The idea is to color vertices either white or black, as we discover them. We will run the <span class="code">bfs</span> on each component in a range like in our <span class="code">components</span> function. We will start out coloring the first vertex white, and then for each edge running from that vertex, we will try to color each of the target vertices black. In general the algorithm proceeds like this: we process every edge &ndash; using <span class="code">process_edge</span> &ndash; and for each vertex, we try to color its neighbors the opposite color. If we come across an edge where both the source and target have already been colored, and those colors are the same, then our graph cannot be bipartite. It's worth thinking a bit about why this algorithm actually works. It turns out, it is equivalent to checking if the graph has an odd-length cycle.
+
+<p>The code for this looks like:
+<pre class="code section">
+func bipartite(g Graph) bool {
+  bipartite := true
+  disc := make([]bool, g.nverts)
+  colors := make([]uint8, g.nverts) // 0 nothing; 1 white; 2 black
+
+  complement := func(v int) uint8 {
+    if colors[v] == 1 {
+      return 2
+    }
+    if colors[v] == 2 {
+      return 1
+    }
+    return 0
+  }
+
+  // keep track of discovered to initialize colors in new components
+  process_vertex := func(v int) {
+    disc[v] = true
+  }
+
+  process_edge := func(s int, t int) {
+    if colors[s] == colors[t] {
+      bipartite = false
+      fmt.Printf("Not bipartite due to conflict: %d --> %d\n", s, t)
+    }
+    colors[t] = complement(s)
+  }
+
+  for i := 0; i < g.nverts; i++ {
+    if !bipartite {
+      break
+    }
+    if !disc[i] {
+      colors[i] = 1
+      bfs(g, i, process_vertex, process_edge)
+    }
+  }
+
+  return bipartite
+}
+</pre>
+
+<p>One note to make: in our <span class="code">process_edge</span>, we need to check the color of the source vertex. This is why, as mentioned earlier in the BFS section, we need the source and target as input parameters, rather than making the function a nicer-looking type like <span class="code">func(e edge)</span>.
+
+<p>As usual, let's run some example tests. We'll add <span class="code">fmt.Println(bipartite(g))</span> to <span class="code">main()</span>, and our graph is still:
+<p><img src="/static/graph3.png" class="center">
+<p>Running the program, we get:
+<pre class="code section">
+$ go run graph.go
+Not bipartite due to conflict: 1 --> 2
+Not bipartite due to conflict: 3 --> 0
+false
+</pre>
+<p>Let's unpack this to make sure we understand the algorithm. The algorithm starts on 0 and colors it white. There are two edges with source 0: 0 --> 2 and 0 --> 1. The former is the head of <span class="code">edges[0]</span> and gets processed first, so 2 gets colored black and added to the queue. Then 0 --> 1 is processed and 1 gets colored black and added to the queue. Now 2 dequeued and the edge 2 --> 3 is processed, which means 3 is colored white and added to the queue. So far so good. But now we dequeue 1 and process 1 --> 2. The algorithm checks the colors of these vertices and notices that they are both colored black, so our graph cannot be bipartite (we discovered an odd cycle). 
+
+<p>Our program also found a conflict with 3 --> 0, but it could have ended after finding the 1 --> 2 conflict. I'm not entirely sure how to approach this yet, to short-circuit <span class="code">bfs</span> from the outside. See the end of the next section for more on this issue.
+
+<p>If we remove the edge 1 --> 2 and re-run the program, we get the output <span class="code">true</span>. This version of the graph is bipartite because we can color 0 and 2 white, 1 and 3 black, so the component 1 is okay. For component 2 (i.e. the 4 <--> 5 part), we color 4 white and 5 black, and 6 white.
+
+
+
+<div class="aside">
+<em>Aside:</em> Checking if a graph is bipartite is a special case of the more general problem of checking for minimum "colorability". In our implementation, we imagined coloring our vertices white or black (really, 1 or 2), and a graph that is bipartite is such that there are no edges running between white and black vertices. In graph theory, we say that a bipartite graph is "2-colorable" for this reason. A more general problem is to check if a graph is "k-colorable" for some given integer k, that is, if it can be colored with k colors such that no edge runs between any two vertices of the same color. For example, our graph above which failed to be bipartite <em>can</em> be separated into 3 disjoint sets of vertices with no edges running between any two of these sets. For example, we could divide our component 1 into the sets {0}, {1,3}, {2}, which would correspond to 3 colors. Graph coloring problems become very difficult very fast. For example: in general, determining the minimum number of colors needed to color a graph is <a href="https://en.wikipedia.org/wiki/Graph_coloring#Algorithms" target="_blank">NP-hard</a>.
+</div>
+
+<h4>
+<hr>
+Algorithms &ndash; searching for a specified vertex
+<hr>
+</h4>
+
+<p>Finally, let's talk briefly about an algorithm that a lot of people might think of as being BFS &ndash; an algorithm which searches the graph for a specific vertex, and returns true or false depending whether or not the vertex is in our graph. We can also leverage our <span class="code">bfs</span> to help us run this algorithm. Again we will use the function closure scheme, and keep track of a boolean in <span class="code">process_vertex</span>.
+
+<p>This might look like:
+<pre class="code section">
+// Return true if search is found; false otherwise
+func bfsFind(g Graph, search int) bool {
+  found := false
+
+  process_vertex := func(v int) {
+    if v == search {
+      found = true
+    }
+  }
+
+  for i := 0; i < g.nverts; i++ {
+    if found {
+      break
+    }
+    bfs(g, i, process_vertex, nil)
+  }
+
+  return found
+}
+</pre>
+
+<p>There is a big efficiency problem with this approach though, which also existed with <span class="code">bipartite</span> above. The short-circuiting when <span class="code">search</span> is found happens in <span class="code">bfsFind</span>, not in <span class="code">bfs</span>. This means that, even if the vertex is found in <span class="code">bfs</span>, the algorithm will finish searching the entire connected component that contains <span class="code">search</span> before it returns to <span class="code">bfsFind</span>. 
+
+<p>I can't think of a good way to fix this issue at the moment, but I will ruminate about it. I'm not sure if there is a way to short-circuit <span class="code">bfs</span> by using our <span class="code">process_vertex</span> function, but I doubt it. 
+
+<p>Optimization aside, the algorithm <em>does</em> work:
+<pre class="code section">
+// fmt.Println(bfsFind(g, 0))
+true
+// fmt.Println(bfsFind(g, 5))
+true
+// fmt.Println(bfsFind(g, 8))
+false
+// fmt.Println(bfsFind(g, -1))
+false
+</pre>
+
+
+<h4>
+<hr>
+Next time
+<hr>
+</h4>
+
+<p>This is a good place to stop. Next time, I'd like to dive into more complicated algorithms that use edge weights, perhaps come up with a better solution to the <span class="code">bfsFind</span> problem, and start to look at visualizing these algorithms.
+
+<p>Thanks for reading.
+
+
+
+<footer>
+	<ul class="breadcrumb">
+		<li><a href="../">Home</a></li>
+		<li><a href="./">Articles</a></li>
+  </ul> 
+</footer>
+
+{{end}}

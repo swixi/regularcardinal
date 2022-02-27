@@ -12,6 +12,7 @@
 {{end}}
 
 {{define "main"}}
+    <hr>
     <div class="info">
 	  Topics covered: diagram of project, Java ServerSocket, Golang TCP client, sending and receiving TCP messages
 	  <br>Original date: Feb 10, 2022
@@ -318,6 +319,12 @@ r=/127.0.0.1,port=45084,localport=59000]
 
 <p>So why do we sometimes get both output lines from the Java program's output stream, and sometimes we need to run <span class="code">Read()</span> twice? I'm not really sure. There's probably something going on here with how the TCP protocol works at a lower level, something to do with the timing of waiting on a TCP channel for a message? It's interesting and worth some digging.
 
+<h4>
+<hr>
+Next time
+<hr>
+</h4>
+
 <p>Anyway, this is a good stopping point for now. Next on the agenda will be to send mathematical expressions to the TCP server and actually parse them, do arithmetic, and send a result back to the client.
 
 <p>I have a couple of other questions in my head right now for the future: 
@@ -330,11 +337,11 @@ r=/127.0.0.1,port=45084,localport=59000]
 
 <p>Until next time.
 
-    <footer>
+<footer>
 	<ul class="breadcrumb">
 		<li><a href="../">Home</a></li>
 		<li><a href="./">Articles</a></li>
 	</ul> 
-	</footer>
+</footer>
 
 {{end}}

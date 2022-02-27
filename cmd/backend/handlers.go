@@ -26,6 +26,8 @@ func articleHandler(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, "articles.page.tmpl", PageData{Time: app.buildTime})
 	} else if relURL == "go-talking-to-java" {
 		renderTemplate(w, "go-talking-to-java.page.tmpl", PageData{Time: app.buildTime})
+	} else if relURL == "graphs-in-go" {
+		renderTemplate(w, "graphs-in-go.page.tmpl", PageData{Time: app.buildTime})
 	} else {
 		http.NotFound(w, r)
 	}
