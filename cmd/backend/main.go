@@ -58,6 +58,7 @@ func main() {
 	fileServer := http.FileServer(http.Dir("./static/"))
 
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
+	mux.Handle("/files/", http.StripPrefix("/files", http.FileServer(http.Dir("./files/"))))
 
 	err = http.ListenAndServe(":"+port, mux)
 	errorLog.Fatal(err)
